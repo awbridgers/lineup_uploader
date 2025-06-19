@@ -14,21 +14,38 @@ firebase.initializeApp({
   appId: process.env.APP_ID,
 });
 
-//NOW READ THE FILE
-
-//!CHANGE THE YEAR HERE
-let year = '2024-25'
+//Default year
+let year = '2024-25';
+const type = process.argv[2] && process.argv[2] === 'w' ? 'women' : 'men';
+year =
+  process.argv[3] && /[\d]{4}-[\d]{2}/.test(process.argv[3])
+    ? process.argv[3]
+    : year;
+const w = type === 'women' ? 'w' : '';
+const db = firebase.database().ref(`lineupData/${type}`);
 
 const parseData = () => {
-  const type = process.argv[2] && process.argv[2]==='w' ? 'women' : 'men'
-  year = process.argv[3] && /[\d]{4}-[\d]{2}/.test(process.argv[3]) ? process.argv[3] : year
-  const w = type === 'women' ? 'w' : ''
-  const db = firebase.database().ref(`lineupData/${type}`);
+  //determine the year and which team we are we dealing with
+
   //read in the excel spreadsheet
   const file = xlsx.readFile(
-    path.join(__dirname, `../../../BSD/Basketball/Tracker Data/${year}${w}.xlsx`)
+    path.join(
+      __dirname,
+      `../../../BSD/Basketball/Tracker Data/${year}${w}.xlsx`
+    )
   );
-  const results = {};
+  const results = {
+    total: new Map(),
+    conference: new Map(),
+    nonConference: new Map(),
+    home: new Map(),
+    away: new Map(),
+    quad1: new Map(),
+    quad2: new Map(),
+    quad3: new Map(),
+    quad4: new Map(),
+    games: {},
+  };
   file.SheetNames.forEach((game, i) => {
     //filter out the sheet metadata
     const {'!ref': ref, '!margins': margins, ...data} = file.Sheets[game];
@@ -37,11 +54,13 @@ const parseData = () => {
     //grab and store the final 4 info cells
     const quad = data[keys.pop()].v;
     const accGame = data[keys.pop()].v;
+    const homeGame = game.includes('@') || game.includes('at') ? false : true;
     const oppScore = data[keys.pop()].v;
     const wakeScore = data[keys.pop()].v;
     //all that is left in array is keys of cells containing lineup data
     for (let i = 26; i < keys.length; i += 26) {
-      lineups[data[keys[i]].v] = {
+      const lineup = {
+        players: data[keys[i]].v,
         time: data[keys[i + 1]].v,
         pointsFor: data[keys[i + 2]].v,
         pointsAgainst: data[keys[i + 3]].v,
@@ -68,8 +87,10 @@ const parseData = () => {
         secondFor: data[keys[i + 24]].v,
         secondAgainst: data[keys[i + 25]].v,
       };
+      lineups[lineup.players] = lineup;
+      addLineup(results, lineup, accGame, homeGame, quad);
     }
-    results[game] = {
+    results.games[game] = {
       accGame: accGame,
       order: i,
       score: {
@@ -80,12 +101,47 @@ const parseData = () => {
       lineups: lineups,
     };
   });
-  db.child(year).set(results).then(()=>{
+
+  return results;
+};
+const addLineup = (res, lineup, conference, home, quad) => {
+  const players = lineup.players;
+
+  //all lineups should be added to the total
+  if (res.total.has(players)) combineLineups(res.total.get(players), lineup);
+  else res.total.set(players, lineup);
+
+  //add lineups to conference/noncon
+  const conf = conference ? 'conference' : 'nonConference';
+  if (res[conf].has(players)) combineLineups(res[conf].get(players), lineup);
+  else res[conf].set(players, lineup);
+
+  //add home or away
+  const location = home ? 'home' : 'away';
+  if (res[location].has(players))
+    combineLineups(res[location].get(players), lineup);
+  else res[location].set(players, lineup);
+
+  //add quad
+  const q = `quad${quad}`;
+  if (res[q].has(players)) combineLineups(res[q].get(players), lineup);
+  else res[q].set(players, lineup);
+};
+
+const combineLineups = (parent, child) => {
+  const keys = Object.keys(parent);
+  keys.forEach((property) => {
+    const prop = child[property];
+    if (typeof prop === 'number') {
+      parent[property] += prop;
+    }
+  });
+};
+
+const data = parseData();
+db.child(`test/${year}`)
+  .set(data)
+  .then(() => {
     console.log('Lineups Uploaded');
     process.exit(0);
-  })
-};
-firebase
-  .auth()
-  .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
-  .then((userCredential) => parseData());
+  });
