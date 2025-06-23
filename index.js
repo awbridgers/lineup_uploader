@@ -22,7 +22,7 @@ year =
     ? process.argv[3]
     : year;
 const w = type === 'women' ? 'w' : '';
-const db = firebase.database().ref(`lineupData/${type}`);
+const db = firebase.database().ref(`lineupData/test/${type}`);
 
 const parseData = () => {
   //determine the year and which team we are we dealing with
@@ -38,12 +38,12 @@ const parseData = () => {
     total: new Map(),
     conference: new Map(),
     nonConference: new Map(),
-    home: new Map(),
-    away: new Map(),
-    quad1: new Map(),
-    quad2: new Map(),
-    quad3: new Map(),
-    quad4: new Map(),
+    home: {},
+    away: {},
+    quad1: {},
+    quad2: {},
+    quad3: {},
+    quad4: {},
     games: {},
   };
   file.SheetNames.forEach((game, i) => {
@@ -108,24 +108,24 @@ const addLineup = (res, lineup, conference, home, quad) => {
   const players = lineup.players;
 
   //all lineups should be added to the total
-  if (res.total.has(players)) combineLineups(res.total.get(players), lineup);
-  else res.total.set(players, lineup);
+  if (res.total[players]) combineLineups(res.total[players], lineup);
+  else res.total[players] = lineup;
 
   //add lineups to conference/noncon
   const conf = conference ? 'conference' : 'nonConference';
-  if (res[conf].has(players)) combineLineups(res[conf].get(players), lineup);
-  else res[conf].set(players, lineup);
+  if (res[conf][players]) combineLineups(res[conf][players], lineup);
+  else res[conf][players] = lineup;
 
   //add home or away
   const location = home ? 'home' : 'away';
-  if (res[location].has(players))
-    combineLineups(res[location].get(players), lineup);
-  else res[location].set(players, lineup);
+  if (res[location][players])
+    combineLineups(res[location][players], lineup);
+  else res[location][players] = lineup;
 
   //add quad
   const q = `quad${quad}`;
-  if (res[q].has(players)) combineLineups(res[q].get(players), lineup);
-  else res[q].set(players, lineup);
+  if (res[q][players]) combineLineups(res[q][players], lineup);
+  else res[q][players] = lineup;
 };
 
 const combineLineups = (parent, child) => {
@@ -139,9 +139,14 @@ const combineLineups = (parent, child) => {
 };
 
 const data = parseData();
-db.child(`test/${year}`)
-  .set(data)
-  .then(() => {
-    console.log('Lineups Uploaded');
-    process.exit(0);
+firebase
+  .auth()
+  .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
+  .then((userCredential) => {
+    db.child(`${year}`)
+      .set(data)
+      .then(() => {
+        console.log('Lineups Uploaded');
+        process.exit(0);
+      });
   });
