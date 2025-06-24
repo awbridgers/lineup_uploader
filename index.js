@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const path = require('path');
 const firebase = require('firebase');
+const createLineup = require('./lineup')
 require('dotenv').config();
 
 //SET UP FIREBASE
@@ -35,16 +36,17 @@ const parseData = () => {
     )
   );
   const results = {
-    total: new Map(),
-    conference: new Map(),
-    nonConference: new Map(),
-    home: {},
-    away: {},
-    quad1: {},
-    quad2: {},
-    quad3: {},
-    quad4: {},
-    games: {},
+    total: { lineups: {}, players: {}},
+    conference: {lineups: {}, players: {}},
+    nonConference: {lineups: {}, players: {}},
+    home: {lineups: {}, players: {}},
+    away: {lineups: {}, players: {}},
+    quad1: {lineups: {}, players: {}},
+    quad2: {lineups: {}, players: {}},
+    quad3: {lineups: {}, players: {}},
+    quad4: {lineups: {}, players: {}},
+    games: {lineups: {}, players: {}},
+    yearTotal: createLineup(year)
   };
   file.SheetNames.forEach((game, i) => {
     //filter out the sheet metadata
@@ -87,8 +89,12 @@ const parseData = () => {
         secondFor: data[keys[i + 24]].v,
         secondAgainst: data[keys[i + 25]].v,
       };
+      //add the lineup to the array for the individual game
       lineups[lineup.players] = lineup;
+      //add the lineup data to each grouping
       addLineup(results, lineup, accGame, homeGame, quad);
+      //update the yearly total
+      combineLineups(results.yearTotal, lineup);
     }
     results.games[game] = {
       accGame: accGame,
@@ -108,45 +114,58 @@ const addLineup = (res, lineup, conference, home, quad) => {
   const players = lineup.players;
 
   //all lineups should be added to the total
-  if (res.total[players]) combineLineups(res.total[players], lineup);
-  else res.total[players] = lineup;
+  if (res.total[players]) combineLineups(res.total.lineups[players], lineup);
+  else res.total.lineups[players] = lineup;
+  addPlayer(players, res.total, lineup)
 
   //add lineups to conference/noncon
   const conf = conference ? 'conference' : 'nonConference';
-  if (res[conf][players]) combineLineups(res[conf][players], lineup);
-  else res[conf][players] = lineup;
+  if (res[conf].lineups[players]) combineLineups(res[conf].lineups[players], lineup);
+  else res[conf].lineups[players] = lineup;
+  addPlayer(players, res[conf], lineup);
 
   //add home or away
   const location = home ? 'home' : 'away';
-  if (res[location][players])
-    combineLineups(res[location][players], lineup);
-  else res[location][players] = lineup;
+  if (res[location].lineups[players]) combineLineups(res[location].lineups[players], lineup);
+  else res[location].lineups[players] = lineup;
+  addPlayer(players, res[location], lineup);
 
   //add quad
   const q = `quad${quad}`;
-  if (res[q][players]) combineLineups(res[q][players], lineup);
-  else res[q][players] = lineup;
+  if (res[q].lineups[players]) combineLineups(res[q].lineups[players], lineup);
+  else res[q].lineups[players] = lineup;
+  addPlayer(players, res[q],lineup)
 };
 
 const combineLineups = (parent, child) => {
   const keys = Object.keys(parent);
   keys.forEach((property) => {
-    const prop = child[property];
-    if (typeof prop === 'number') {
-      parent[property] += prop;
+    const childVal = child[property] ? child[property] : 0;
+    if (typeof childVal === 'number') {
+      parent[property] += childVal;
     }
   });
 };
 
+//add the lineup stats to all players in the lineup
+const addPlayer = (players, group, lineup)=>{
+  const playerArray = players.split('\\');
+  for(const player of playerArray){
+    if(!group.players[player]) group.players[player] = createLineup(`${player}`);
+    combineLineups(group.players[player], lineup)
+  }
+};
 const data = parseData();
-firebase
-  .auth()
-  .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
-  .then((userCredential) => {
-    db.child(`${year}`)
-      .set(data)
-      .then(() => {
-        console.log('Lineups Uploaded');
-        process.exit(0);
-      });
-  });
+console.log(data.yearTotal)
+
+// firebase
+//   .auth()
+//   .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
+//   .then((userCredential) => {
+//     db.child(`${year}`)
+//       .set(data)
+//       .then(() => {
+//         console.log('Lineups Uploaded');
+//         process.exit(0);
+//       });
+//   });
