@@ -1,0 +1,30 @@
+module.exports = function(players){
+  return {
+  players: players,
+  time: 0,
+  pointsFor: 0,
+  pointsAgainst: 0,
+  dRebFor: 0,
+  dRebAgainst: 0,
+  oRebFor: 0,
+  oRebAgainst: 0,
+  ftaFor: 0,
+  ftaAgainst: 0,
+  madeTwosFor: 0,
+  attemptedTwosFor: 0,
+  madeTwosAgainst: 0,
+  attemptedTwosAgainst: 0,
+  madeThreesFor: 0,
+  attemptedThreesFor: 0,
+  madeThreesAgainst: 0,
+  attemptedThreesAgainst: 0,
+  assistsFor: 0,
+  assistsAgainst: 0,
+  turnoversFor: 0,
+  turnoversAgainst: 0,
+  paintFor: 0,
+  paintAgainst: 0,
+  secondFor: 0,
+  secondAgainst: 0
+  }
+}
