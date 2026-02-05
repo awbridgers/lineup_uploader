@@ -15,50 +15,73 @@ firebase.initializeApp({
   appId: process.env.APP_ID,
 });
 
-//Default year
-let year = '2024-25';
-const type = process.argv[2] && process.argv[2] === 'w' ? 'women' : 'men';
-year =
-  process.argv[3] && /[\d]{4}-[\d]{2}/.test(process.argv[3])
-    ? process.argv[3]
-    : year;
-const w = type === 'women' ? 'w' : '';
-const db = firebase.database().ref(`lineupData/test/${type}`);
-
-const parseData = () => {
-  //determine the year and which team we are we dealing with
-
+const uploadData = (year, gender) => {
+  const db = firebase.database().ref(`lineupData/${gender}`);
   //read in the excel spreadsheet
   const file = xlsx.readFile(
     path.join(
       __dirname,
-      `../../../BSD/Basketball/Tracker Data/${year}${w}.xlsx`
+      `../../../BSD/Basketball/Tracker Data/${year}${
+        gender === 'women' ? 'w' : ''
+      }.xlsx`
     )
   );
-  const yearTotal = createLineup(year);
   const results = {
-    total: {lineups: {}, players: {}},
-    conference: {lineups: {}, players: {}},
-    nonConference: {lineups: {}, players: {}},
-    home: {lineups: {}, players: {}},
-    away: {lineups: {}, players: {}},
-    quad1: {lineups: {}, players: {}},
-    quad2: {lineups: {}, players: {}},
-    quad3: {lineups: {}, players: {}},
-    quad4: {lineups: {}, players: {}},
-    games: {lineups: {}, players: {}},
+    Total: {
+      lineups: {},
+      players: {},
+      count: 0,
+      yearlyTotal: createLineup(year),
+    },
+    Conference: {
+      lineups: {},
+      players: {},
+      count: 0,
+      yearlyTotal: createLineup(year),
+    },
+    ['Non-Conference']: {
+      lineups: {},
+      players: {},
+      count: 0,
+      yearlyTotal: createLineup(year),
+    },
+    Home: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
+    Away: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
+    Neutral: {
+      lineups: {},
+      players: {},
+      count: 0,
+      yearlyTotal: createLineup(year),
+    },
+    Q1: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
+    Q2: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
+    Q3: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
+    Q4: {lineups: {}, players: {}, count: 0, yearlyTotal: createLineup(year)},
   };
-  file.SheetNames.forEach((game, i) => {
+  const gamesList = [];
+  file.SheetNames.forEach((game, index) => {
     //filter out the sheet metadata
     const {'!ref': ref, '!margins': margins, ...data} = file.Sheets[game];
-    const lineups = {};
+    const gameLineups = {};
+    const players = {};
     const keys = Object.keys(data);
     //grab and store the final 4 info cells
     const quad = data[keys.pop()].v;
     const accGame = data[keys.pop()].v;
-    const homeGame = game.includes('@') || game.includes('at') ? false : true;
+    const gameLocation = game.includes('(N)')
+      ? 'Neutral'
+      : game.includes('@')
+      ? 'Away'
+      : 'Home';
     const oppScore = data[keys.pop()].v;
     const wakeScore = data[keys.pop()].v;
+
+    //set the counts for the games
+    results.Total.count++;
+    results[accGame ? 'Conference' : 'Non-Conference'].count++;
+    results[gameLocation].count++;
+    results[`Q${quad}`].count++;
+
     //all that is left in array is keys of cells containing lineup data
     for (let i = 26; i < keys.length; i += 26) {
       const lineup = {
@@ -90,53 +113,78 @@ const parseData = () => {
         secondAgainst: data[keys[i + 25]].v,
       };
       //add the lineup to the array for the individual game
-      lineups[lineup.players] = lineup;
+      gameLineups[lineup.players] = lineup;
+      addPlayer(lineup.players, players, lineup);
       //add the lineup data to each grouping
-      addLineup(results, lineup, accGame, homeGame, quad);
+      addLineup(results, lineup, accGame, gameLocation, quad);
       //update the yearly total
-      combineLineups(yearTotal, lineup);
     }
-    results.games[game] = {
-      accGame: accGame,
-      order: i,
+    gamesList.push({
+      game: game,
+      order: index + 9,
       score: {
         opp: oppScore,
         wake: wakeScore,
       },
-      quad: quad,
-      lineups: lineups,
-    };
+      lineups: gameLineups,
+      players: players,
+      gameCount: 0,
+    });
   });
+  //convert the data into 1 big array
+  const dataArray = [];
+  const yearlyTotal = [];
+  Object.keys(results).forEach((category, i) => {
+    dataArray.push({
+      game: category,
+      order: i,
+      score: {
+        opp: 0,
+        wake: 0,
+      },
+      lineups: results[category].lineups,
+      players: results[category].players,
+      gameCount: results[category].count,
+    });
+    yearlyTotal.push({
+      category: category,
+      order: i,
+      lineup: results[category].yearlyTotal,
+    });
+  });
+  dataArray.push(...gamesList);
 
-  return [results, yearTotal];
+  //upload to the database
+  return new Promise((res, rej) => {
+    firebase
+      .auth()
+      .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
+      .then((userCredential) => {
+        db.child(`${year}`)
+          .set(dataArray)
+          .then(() => {
+            console.log(`Lineups uploaded for ${year} ${gender}`);
+            db.child(`years/${year}`)
+              .set(yearlyTotal)
+              .then(() => {
+                console.log(`Yearly totals uploaded for ${year} ${gender}`);
+                res(`${year} ${gender} complete!`)
+              });
+          });
+      });
+  });
 };
-const addLineup = (res, lineup, conference, home, quad) => {
+const addLineup = (res, lineup, conference, location, quad) => {
   const players = lineup.players;
-
-  //all lineups should be added to the total
-  if (res.total[players]) combineLineups(res.total.lineups[players], lineup);
-  else res.total.lineups[players] = lineup;
-  addPlayer(players, res.total, lineup);
-
-  //add lineups to conference/noncon
-  const conf = conference ? 'conference' : 'nonConference';
-  if (res[conf].lineups[players])
-    combineLineups(res[conf].lineups[players], lineup);
-  else res[conf].lineups[players] = lineup;
-  addPlayer(players, res[conf], lineup);
-
-  //add home or away
-  const location = home ? 'home' : 'away';
-  if (res[location].lineups[players])
-    combineLineups(res[location].lineups[players], lineup);
-  else res[location].lineups[players] = lineup;
-  addPlayer(players, res[location], lineup);
-
-  //add quad
-  const q = `quad${quad}`;
-  if (res[q].lineups[players]) combineLineups(res[q].lineups[players], lineup);
-  else res[q].lineups[players] = lineup;
-  addPlayer(players, res[q], lineup);
+  const conf = conference ? 'Conference' : 'Non-Conference';
+  const q = `Q${quad}`;
+  for (const key of ['Total', conf, location, q]) {
+    if (res[key].lineups[players])
+      combineLineups(res[key].lineups[players], lineup);
+    else res[key].lineups[players] = {...lineup};
+    combineLineups(res[key].yearlyTotal, {...lineup});
+    addPlayer(players, res[key].players, {...lineup});
+  }
 };
 
 const combineLineups = (parent, child) => {
@@ -150,29 +198,37 @@ const combineLineups = (parent, child) => {
 };
 
 //add the lineup stats to all players in the lineup
-const addPlayer = (players, group, lineup) => {
+const addPlayer = (players, results, lineup) => {
   const playerArray = players.split('\\');
   for (const player of playerArray) {
-    if (!group.players[player])
-      group.players[player] = createLineup(`${player}`);
-    combineLineups(group.players[player], lineup);
+    if (!results[player]) results[player] = createLineup(`${player}`);
+    combineLineups(results[player], lineup);
   }
 };
-const [data, yearTotal] = parseData();
 
-firebase
-  .auth()
-  .signInWithEmailAndPassword(process.env.EMAIL, process.env.PASSWORD)
-  .then((userCredential) => {
-    db.child(`${year}`)
-      .set(data)
-      .then(() => {
-        console.log('Lineups Uploaded');
-        db.child(`years/${year}`)
-          .set(yearTotal)
-          .then(() => {
-            console.log('year uploaded');
-            process.exit(0);
-          });
-      });
-  });
+const go = async () => {
+  //Default year
+  let year = '2025-26';
+  if (process.argv[2] && process.argv[2] === 'all') {
+    //upload all years
+    const yearList = ['2020-21', '2021-22', '2022-23', '2023-24', '2024-25'];
+    for (const season of yearList) {
+      const status = await uploadData(season, 'men');
+      console.log(status)
+      const status2 = await uploadData(season, 'women');
+      console.log(status2)
+    }
+    process.exit(0)
+  } else {
+    year =
+      process.argv[2] && /[\d]{4}-[\d]{2}/.test(process.argv[2])
+        ? process.argv[2]
+        : year;
+    const gender =
+      process.argv[2] && process.argv[2].includes('w') ? 'women' : 'men';
+    await uploadData(year.replace('w', ''), gender);
+    process.exit();
+  }
+
+};
+go()
